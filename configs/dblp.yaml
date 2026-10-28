@@ -1,0 +1,14 @@
+# DBLP titles from the TaxoGen release (taxonomy construction only, no recommendation).
+# Get the data with: python -m taxorec download --config configs/dblp.yaml
+# (Google Drive file linked from github.com/franticnerd/taxogen, sha256-checked; see data.TAXOGEN_DBLP)
+_base_: _base_taxonomy.yaml
+dataset: dblp
+paths:
+  out_dir: outputs/dblp
+corpus:
+  source: dblp
+  papers: data/dblp_raw/input/papers.txt
+  keywords: data/dblp_raw/input/keywords.txt
+encoders:
+  # the release's own global word2vec vectors (used by the TaxoGen baseline at the root)
+  word2vec: {_replace_: true, type: word2vec, pretrained: data/dblp_raw/input/embeddings.txt}

@@ -1,0 +1,82 @@
+# Smoke test on synthetic data (about a minute, no downloads):
+#   python -m taxorec make-toy-data --config configs/toy.yaml
+#   python -m taxorec all --config configs/toy.yaml
+# Numbers produced here mean nothing; they only show the pipeline works.
+_base_: _base_amazon.yaml
+dataset: toy
+paths:
+  out_dir: outputs/toy
+amazon:
+  category: Toy
+  reviews: data/toy/Toy.jsonl.gz
+  meta: data/toy/meta_Toy.jsonl.gz
+seeds: [42, 0]
+
+encoders:
+  sbert: {_replace_: true, type: charngram, dim: 64}   # stands in for SBERT so nothing is downloaded
+  word2vec: {_replace_: true, type: word2vec, vector_size: 32, window: 5, negative: 5, min_count: 2,
+             epochs: 10, workers: 1}
+
+corpus:
+  tokenizer: {_replace_: true, type: simple}
+  phrases: {min_count: 5, threshold: 1.0, passes: 1}
+  min_words: 10
+  english_only: false        # toy reviews are word lists without function words
+  min_df: 3
+  max_df_ratio: 0.5
+
+taxonomy:
+  methods:
+    improved:
+      builder: {hdb_divisor: 4, hdb_floor: 3, hdb_min_samples: 2, min_terms_to_split: 8,
+                min_docs_to_split: 10, min_child_terms: 2, max_depth: 2, tau: 0.1}
+    taxogen:
+      taxogen: {n_cluster: 3, n_iter: 2, n_expand: 15, max_depth: 2, min_docs_to_split: 10,
+                w2v: {vector_size: 32, min_count: 2, epochs: 10, workers: 1}}
+    sbert_kmeans:
+      builder: {k: 3, max_depth: 2, min_terms_to_split: 8, min_docs_to_split: 10}
+  split: {train: 0.35, val: 0.35}
+  tuning:
+    min_term_coverage: 0.1
+    min_nodes: 2
+    grids:
+      _replace_: true
+      improved: {builder.tau: [0.05, 0.1], builder.hdb_divisor: [10, 20]}   # divides the sampled reviews
+      taxogen: {taxogen.filter_thre: [0.2, 0.25]}
+      sbert_kmeans: {builder.k: [3, 4]}
+  sensitivity:
+    params:
+      _replace_: true
+      builder.tau: [0.05, 0.1]
+      encoders.sbert_ctx.drop_df: [null, 0.3]
+  ablation:
+    seeds: [42, 0]
+    split: [docs, terms]
+    clusterer: [hdbscan, kmeans]
+    relation: [none, bm25cos]
+
+evaluation:
+  test_once: false     # smoke test, re-run freely
+  gold: true
+  depths: [1, 2]
+
+human_eval:
+  n_relation: 10
+  n_intrusion: 10
+  n_boot: 200
+
+rec:
+  kcore: 2
+  max_valid_users: null
+  n_boot: 500
+  taxonomies: [improved, taxogen, sbert_kmeans, gold]
+  models:
+    - {name: Popularity, type: popularity}
+    - {name: ItemKNN, type: itemknn, grid: {shrink: [0, 10]}}
+    - {name: BPR-MF, type: bpr, grid: {dim: [16], lr: [0.05], reg: [0.0001], epochs: [5]}}
+    - {name: Sem, type: hybrid, components: [sem]}
+    - {name: Tax(Improved), type: hybrid, components: ["tax:improved"]}
+    - {name: Sem+Tax(Improved), type: hybrid, components: [sem, "tax:improved"], weight_step: 0.25}
+    - {name: Sem+Tax(TaxoGen), type: hybrid, components: [sem, "tax:taxogen"], weight_step: 0.25}
+    - {name: Sem+Tax(Gold), type: hybrid, components: [sem, "tax:gold"], weight_step: 0.25}
+    - {name: Sem+Tax(Improved)+CF, type: hybrid, components: [sem, "tax:improved", cf], weight_step: 0.25}

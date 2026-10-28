@@ -1,0 +1,24 @@
+# Versions the test suite was run with (Python 3.10, CPU). Install with
+#   python -m pip install --upgrade pip setuptools wheel
+#   pip install -r requirements.txt && pip install -e .
+# Optional BERTopic baseline: pip install bertopic -c requirements.txt
+numpy==1.26.4
+scipy==1.11.4
+scikit-learn==1.7.2
+pandas==2.3.3
+PyYAML==6.0.2
+torch==2.1.0
+# transformers >= 4.42 needs torch >= 2.2; keep this trio together
+sentence-transformers==2.7.0
+transformers==4.41.2
+tokenizers==0.19.1
+huggingface-hub==0.36.2
+gensim==4.4.0
+# UMAP before HDBSCAN in TaxoGen-Improved
+umap-learn==0.5.12
+spacy==3.8.7
+# spaCy's CLI (used by `spacy download`) needs click/typer
+click==8.4.1
+typer==0.25.1
+statsmodels==0.14.6
+pytest==8.3.5

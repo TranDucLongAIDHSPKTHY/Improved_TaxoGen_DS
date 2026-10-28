@@ -1,0 +1,42 @@
+# Second e-commerce corpus (Reviewer 3). Chosen on 2026-10-26 from a survey of
+# Amazon Reviews 2023 categories: small (78 MB reviews, 94 MB metadata) and
+# 99% of sampled products carry category paths of depth 3-6, which serve as a
+# gold hierarchy. Evaluated automatically (no human judgments). Confirmed by
+# the team on 2026-10-26.
+_base_: _base_amazon.yaml
+dataset: handmade_products
+paths:
+  out_dir: outputs/handmade_products
+amazon:
+  category: Handmade_Products
+  reviews: data/raw/Handmade_Products.jsonl.gz
+  meta: data/raw/meta_Handmade_Products.jsonl.gz
+evaluation:
+  gold: true
+  depths: [1, 2, 3]
+human_eval:
+  enabled: false
+rec:
+  taxonomies: [improved, taxogen, sbert_kmeans, gold]
+  models:
+    - {name: Popularity, type: popularity}
+    - {name: ItemKNN, type: itemknn, grid: {shrink: [0, 10, 50], topk: [null, 200]}}
+    - {name: BPR-MF, type: bpr, grid: {dim: [64], lr: [0.05], reg: [0.0001, 0.001], epochs: [30]}}
+    - {name: Sem, type: hybrid, components: [sem]}
+    - {name: Tax(Improved), type: hybrid, components: ["tax:improved"]}
+    - {name: Sem+Tax(Improved), type: hybrid, components: [sem, "tax:improved"], weight_step: 0.1}
+    - {name: Sem+Tax(TaxoGen), type: hybrid, components: [sem, "tax:taxogen"], weight_step: 0.1}
+    - {name: Sem+Tax(SBERT-kmeans), type: hybrid, components: [sem, "tax:sbert_kmeans"], weight_step: 0.1}
+    - {name: Sem+Tax(Gold), type: hybrid, components: [sem, "tax:gold"], weight_step: 0.1}
+    - {name: Sem+Tax(Improved)+CF, type: hybrid, components: [sem, "tax:improved", cf], weight_step: 0.1}
+taxonomy:
+  tuning:
+    # 2026-10-27: Handmade has no human evaluation, and min_nodes 50 exists only
+    # to give the annotation forms enough items. On its small train split
+    # (~39k reviews) no configuration reached 50 nodes, with the shared
+    # divisors (largest tree 45 nodes) or with finer ones (40/60/80: at most 41;
+    # the anchors' document-frequency bar, not the cluster size, limits the
+    # tree). The floor is set to 30, about the gold tree's 28 top-level
+    # categories; the grid and the rest of the rule are shared with the other
+    # datasets, and every method is compared at matched size anyway.
+    min_nodes: 30

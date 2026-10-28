@@ -1,0 +1,10 @@
+_base_: _base_amazon.yaml
+dataset: amazon_fashion
+paths:
+  out_dir: outputs/amazon_fashion
+amazon:
+  category: Amazon_Fashion
+  reviews: data/raw/Amazon_Fashion.jsonl.gz
+  meta: data/raw/meta_Amazon_Fashion.jsonl.gz
+evaluation:
+  gold: false   # the `categories` field is empty for every Amazon_Fashion product

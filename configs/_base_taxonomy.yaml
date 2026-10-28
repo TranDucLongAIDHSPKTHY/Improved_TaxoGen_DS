@@ -1,0 +1,176 @@
+# Shared by every dataset: encoders, taxonomy methods, tuning, ablation,
+# automatic and human evaluation. Dataset configs override what they need.
+seed: 42                    # main run (taxonomies used for human evaluation and recommendation)
+seeds: [42, 0, 1, 2, 3]     # all runs for mean +- std of the automatic metrics (the main seed first)
+
+encoders:
+  sbert:
+    type: sbert
+    model_name: sentence-transformers/all-MiniLM-L6-v2
+    revision: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41   # pinned model commit
+    device: cpu
+    batch_size: 64
+  # workers: 1 makes gensim bit-for-bit deterministic (slower, but reproducible)
+  word2vec: {type: word2vec, vector_size: 100, window: 5, negative: 10, min_count: 10, sg: 1, epochs: 5, workers: 1}
+  charngram: {type: charngram, dim: 128}
+  # SBERT of a term on its own groups words of the same kind (praise, colours,
+  # prices) rather than topics (Amazon_Fashion, 2026-10-26); the term vector is
+  # instead the mean SBERT embedding of documents that contain it
+  sbert_ctx: {type: context, base: sbert, docs_per_term: 30}
+
+taxonomy:
+  use_tuned: true           # apply the parameters chosen by tune-taxonomy (tuning/chosen.json)
+  methods:
+    # TaxoGen-Improved: SBERT document clusters (UMAP + HDBSCAN) as children,
+    # BM25-cosine relation scoring (Eq. 1) on context SBERT term vectors
+    improved:
+      type: builder
+      encoder: sbert_ctx
+      builder:
+        clusterer: hdbscan
+        # clustering single terms grouped synonyms/spelling variants below the
+        # root (cheap, cheapy, cheep), which never co-occur (2026-10-26); the
+        # ablation keeps split: terms
+        split: docs
+        split_max_docs: 20000
+        split_min_kl: 0.25
+        # anchors: a term defines a child only if it occurs in >= 10 and >= 2% of
+        # the child's sampled documents (rare terms never co-occur); terms too
+        # rare to judge join the child with the closest anchor centroid when they
+        # are closer to it than the average term (centred cosine > 0); frequent
+        # terms spread over the children stay at the parent (fixed 2026-10-27:
+        # the attachment had pushed generic words such as 'design' to the leaves)
+        split_min_df: 10
+        split_min_df_frac: 0.02
+        split_attach_min_sim: 0.0
+        # averaged context vectors share one direction (median cosine of random
+        # term pairs 0.59 on Fashion), so no cosine threshold rejected anything
+        # (tau never removed a child) until the mean vector was subtracted
+        center: true
+        # without UMAP, HDBSCAN on raw 384-d SBERT vectors labels all 13,855 DBLP
+        # terms as noise at the root (2026-10-26); the ablation keeps a no-UMAP row
+        reduce: umap
+        umap_dim: 5
+        umap_neighbors: 15
+        hdb_divisor: 20
+        hdb_floor: 15
+        hdb_ceiling: 2000
+        hdb_min_samples: 3
+        hdb_selection: leaf
+        relation: bm25cos
+        w: 0.7
+        tau: 0.2
+        profile_k: 10
+        local: recenter
+        max_depth: 3
+        min_terms_to_split: 30
+        min_docs_to_split: 20
+        min_child_terms: 5
+    # Re-implementation of TaxoGen (Zhang et al., KDD 2018)
+    taxogen:
+      type: taxogen
+      encoder: word2vec
+      taxogen:
+        n_cluster: 5
+        n_iter: 5
+        filter_thre: 0.25
+        n_expand: 100
+        max_depth: 3
+        min_docs_to_split: 50
+        max_local_docs: 15000
+        w2v: {vector_size: 100, window: 5, negative: 10, min_count: 10, workers: 1}
+    # Simpler baseline (Reviewer 3): SBERT + recursive spherical k-means, no relation scoring
+    sbert_kmeans:
+      type: builder
+      encoder: sbert
+      builder: {clusterer: kmeans, k: 5, relation: none, local: none, max_depth: 3,
+                min_terms_to_split: 30, min_docs_to_split: 20, min_child_terms: 1}
+    # Flat BERTopic topics (Reviewer 3); skipped if `pip install -e .[bertopic]` was not run
+    bertopic:
+      type: bertopic
+      optional: true
+      encoder: sbert
+      bertopic: {top_n: 30, max_docs: 100000}
+
+  # Fixed document split (main seed): the tuning grid is built on `train` and
+  # scored on `val`, and every development decision looks only at val; final
+  # taxonomies are built on train + val; the test documents (the rest, 50%) are
+  # read only by eval-taxonomy and the ablation. Replaced the 20%/80% dev/held-out
+  # split on 2026-10-26 after the held-out part had been used during development.
+  split: {train: 0.2, val: 0.3}
+
+  # B4: parameters chosen on the val documents with the rule below, before any
+  # human judgment. Every method gets a tuning budget of the same order.
+  tuning:
+    min_term_coverage: 0.3
+    # 2026-10-26, before any test reading or human judgment: 10 picked 16-23-node
+    # taxonomies (too few edges to annotate); 80 then forced the document-split
+    # method into its weakest regime. Methods are now compared at matched size
+    # (evaluation.size_matched_methods, human_eval.size_matched), and 50 nodes
+    # leave about 45 relation and 45 intrusion items per method.
+    min_nodes: 50
+    grids:
+      improved:
+        # 18 configurations, as for every version; w is fixed at 0.7 (its effect
+        # is in the sensitivity analysis). tau spans 0.2 (rejects no child on
+        # val) to 0.4 (cuts DBLP to 20 nodes, Fashion to 42); centring removes
+        # attached terms and relation scoring removes subtrees, so the divisors
+        # lean towards finer clusters than before (2026-10-27)
+        builder.split_min_df_frac: [0.01, 0.02]
+        builder.hdb_divisor: [20, 30, 40]
+        builder.tau: [0.2, 0.3, 0.4]
+      taxogen:
+        taxogen.filter_thre: [0.15, 0.2, 0.25, 0.3]
+        taxogen.n_cluster: [4, 5, 6]
+      sbert_kmeans:
+        builder.k: [3, 4, 5, 6, 8]
+
+  # Parameter sensitivity (Reviewers 1-2), on val like tuning: each parameter
+  # is varied alone around the tuned configuration
+  sensitivity:
+    base: improved
+    params:
+      builder.tau: [0.1, 0.2, 0.25, 0.3, 0.4]
+      builder.w: [0.3, 0.5, 0.7]
+      builder.hdb_divisor: [10, 15, 20, 30]
+      builder.split_min_df: [0, 5, 10, 20]
+      builder.split_min_df_frac: [0, 0.005, 0.01, 0.02, 0.04]
+      builder.split_attach_min_sim: [null, 0.0, 0.1, 0.2, 0.3]
+      encoders.sbert_ctx.drop_df: [null, 0.1]
+
+  # Component ablation (Reviewers 1-3): every combination of these factors of
+  # the tuned base builder (`encoder` or any builder field)
+  ablation:
+    base: improved
+    seeds: [42, 0, 1]   # 3 of the 5 seeds: 21 variants x 3 builds fit in one night per dataset
+    split: [docs, terms]
+    clusterer: [hdbscan, kmeans]
+    relation: [none, cos, bm25, bm25cos]
+    # single-factor variants of the tuned base, run in addition to the grid
+    extra:
+      - {reduce: none}
+      - {split_min_df: 0, split_min_df_frac: 0.0}   # no anchors: every term by CaseOLAP alone
+      - {split_attach_min_sim: null}                 # anchors only, no long-tail attachment
+      - {center: false}                              # raw (uncentred) context vectors
+      - {split: terms, encoder: sbert}      # clustering term-only SBERT vectors (the original design)
+      - {split: terms, encoder: word2vec}
+
+evaluation:
+  test_once: true      # eval-taxonomy and ablation may each read the test documents once
+  top_k: 10
+  gold: false
+  depths: [1, 2]
+  assign_top_k: 20
+  # the main comparison (Reviewer 2): these methods pruned to the smallest one's
+  # size (*@matched_size); full-size numbers are reported as well
+  size_matched_methods: [improved, taxogen, sbert_kmeans]
+
+human_eval:
+  enabled: true
+  methods: [improved, taxogen]
+  size_matched: true   # items sampled from the taxonomies pruned to the same size
+  n_relation: 60       # upper bounds; per-level quotas are capped by what the smaller taxonomy offers
+  n_intrusion: 50
+  display_k: 5
+  n_boot: 5000
+  # answers are read from <out_dir>/human_eval/responses/*_relation.csv and *_intrusion.csv

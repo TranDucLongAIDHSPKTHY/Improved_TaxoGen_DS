@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Data and generated artifacts (regenerate with `python -m taxorec ...`)
+data/
+outputs/
+*.offsets.npy
+*.sha256.json
+
+docs/BAN_CHOT.md
+
+# Kept only on the local machine, never published
+legacy/
+paper/
+
+# Human-evaluation answer keys and raw responses are never committed
+**/KEY_DO_NOT_SHARE.json
+**/human_eval/responses/
+
+# Environment / editors / OS
+.env
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+~$*
